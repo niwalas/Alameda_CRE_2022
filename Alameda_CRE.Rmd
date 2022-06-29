@@ -1,0 +1,162 @@
+---
+title: "Alameda_CRE"
+output: html_document
+---
+#Import Datasets
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#import packages
+library(tidyr)
+library(tidyverse)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(readxl)
+library(kableExtra)
+
+#import datasets
+#resistance genes
+arg <- read.delim("abricate_mlplasmids_analysis.tsv") %>% rename(isolate = "X.FILE") %>% rename_with(~ tolower(gsub(" ","_", .x, fixed=TRUE))) %>% filter(isolate != "ID1000918.fasta")
+
+#mlst
+ec_st <- read.delim("e.colimlst.txt", header=TRUE, fill=TRUE) %>% rename (isolate = "ID") %>% rename_with(~ tolower(gsub(" ","_", .x, fixed=TRUE))) %>% filter(isolate != "ID1000918.fasta")
+
+#mlplasmid analysis
+mlplasmids <- read.csv("alameda_mlplasmids_comp.csv") %>% select(-X) %>% rename(contig_id = contig_name, contig_length = contig_length) %>% mutate(id = str_remove(isolate, ".fastq.gz.fasta"))
+#remove spaces so merge is possible
+mlplasmids$contig_id <- sub(" ", "_", mlplasmids$contig_id)
+mlplasmids$contig_id <- sub(" ", "_", mlplasmids$contig_id)
+mlplasmids$contig_id <- sub(" ", "_", mlplasmids$contig_id)
+mlplasmids$contig_id <- sub(" ", "_", mlplasmids$contig_id)
+mlplasmids$contig_id <- sub(" ", "_", mlplasmids$contig_id)
+mlplasmids$contig_id <- sub(" ", "_", mlplasmids$contig_id)
+
+#mobsuite analysis
+mobsuite <- read.csv("alameda_mob_suite_contig_comp.csv") %>% select(-X)
+
+#merge mobsuite and mlplasmid for master dataset
+plas_master <- merge(mlplasmids, mobsuite, by = c('id', 'contig_id')) %>% arrange(id, sequence) %>% rename(mlplasmid_prediction = prediction, mobsuite_prediction = molecule_type)
+#tidyup
+plas_master <- plas_master %>% select(-sample_id) %>% filter(contig_length > 1000)  
+plas_master$mlplasmid_prediction = tolower(plas_master$mlplasmid_prediction)
+```
+#Resistance and Plasmid Analysis
+```{r}
+#barplot 
+#merge dataframes
+arg_plas <- merge(arg, plas_master, by = c('sequence', 'isolate'), all = F) %>% select(sequence, isolate, mlplasmid_prediction, posterior_probability_chromosome, posterior_probability_plasmid, mlplasmid_prediction, mobsuite_prediction, gene, accession, product, resistance, id)
+
+#filter out ambiguous contig calls
+arg_plas <- arg_plas %>% filter(mlplasmid_prediction == "chromosome" & mobsuite_prediction == "chromosome" | mlplasmid_prediction == "plasmid" & mobsuite_prediction == "plasmid")
+
+arg_plas_2 <- arg_plas %>% 
+  mutate(MCR = if_else(grepl("mcr",product), 1, 0),
+         BLA_OXA = if_else(grepl("OXA",product), 1, 0), 
+         BLA_VIM = if_else(grepl("VIM",product), 1, 0), 
+         BLA_NDM = if_else(grepl("NDM",product), 1, 0), 
+         BLA_IMP = if_else(grepl("IMP",product), 1, 0), 
+         BLA_IMI = if_else(grepl("IMI",product), 1, 0), 
+         BLA_KPC = if_else(grepl("KPC",product), 1, 0), 
+         BLA_CTX = if_else(grepl("CTX",product), 1, 0), 
+         BLA_SHV = if_else(grepl("SHV",product), 1, 0), 
+         BLA_CMY = if_else(grepl("CMY",product), 1, 0),
+         BLA_TEM = if_else(grepl("TEM",product), 1, 0), 
+         QNR = if_else(grepl("qnr",product), 1, 0), 
+         OQX = if_else(grepl("oqx",product), 1, 0), 
+         AAC = if_else(grepl("aac",product), 1, 0), 
+         APH = if_else(grepl("aph",product), 1, 0), 
+         ANT = if_else(grepl("ant",product) | grepl("aad",product), 1, 0), #aminoglycoside
+  # none       PMR = if_else(grepl("pmr",product) | grepl("aad",product), 1, 0), # polymixin
+         ERM = if_else(grepl("erm",product) | grepl("aad",product), 1, 0), #macrolide
+         ) 
+
+#summarise chromosome
+arg_plas_summary_chr <- arg_plas_2 %>% filter(mlplasmid_prediction == "chromosome") %>%
+  summarise(MCR = sum(MCR),
+            OXA = sum(BLA_OXA),
+            NDM = sum(BLA_NDM),
+            VIM = sum(BLA_VIM),
+            IMP = sum(BLA_IMP),
+            IMI = sum(BLA_IMI),
+            KPC = sum(BLA_KPC),
+            CTX = sum(BLA_CTX),
+            SHV = sum(BLA_SHV),
+            CMY = sum(BLA_CMY),
+            TEM = sum(BLA_TEM),
+            QNR = sum(QNR),
+            OQX = sum(OQX),
+            AAC = sum(AAC),
+            APH = sum(APH),
+            ANT = sum(ANT),
+            ERM = sum(ERM)) %>% pivot_longer(cols=c(MCR:ERM), names_to="res_group", values_to="chromosome")
+
+#summarise plasmid
+arg_plas_summary_plas <- arg_plas_2 %>% filter(mlplasmid_prediction == "plasmid") %>%
+  summarise(MCR = sum(MCR),
+            OXA = sum(BLA_OXA),
+            NDM = sum(BLA_NDM),
+            VIM = sum(BLA_VIM),
+            IMP = sum(BLA_IMP),
+            IMI = sum(BLA_IMI),
+            KPC = sum(BLA_KPC),
+            CTX = sum(BLA_CTX),
+            SHV = sum(BLA_SHV),
+            CMY = sum(BLA_CMY),
+            TEM = sum(BLA_TEM),
+            QNR = sum(QNR),
+            OQX = sum(OQX),
+            AAC = sum(AAC),
+            APH = sum(APH),
+            ANT = sum(ANT),
+            ERM = sum(ERM)) %>% pivot_longer(cols=c(MCR:ERM), names_to="res_group", values_to="plasmid")
+
+#merge the two counts
+arg_plas_summary <- merge(arg_plas_summary_chr, arg_plas_summary_plas, by = c('res_group')) 
+#format for plot and remove empty
+arg_plas_summary_2_graph <- arg_plas_summary %>% pivot_longer(cols = 2:3 , names_to = "group") %>% rename(count = value)
+
+#plot
+ggplot(arg_plas_summary_2_graph, aes(fill= factor(group, levels= c("chromosome", "plasmid")), x= factor(res_group, levels=c("AAC", "ANT", "APH", "ERM", "QNR","CMY", "CTX", "SHV", "TEM", "OXA", "NDM", "KPC")), y=count)) +
+  geom_bar(colour="grey30", stat="identity") +
+  theme(legend.position = "top", 
+        panel.border = element_rect(colour = "black", fill=NA, size=0.5), 
+        panel.background = element_rect(fill = 'white'), 
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(), 
+        axis.text.x = element_text(color="black", size =10, angle = 45, vjust = 0.85, hjust= 0.75, family="Arial"),
+        axis.text.y = element_text(color="black", size =10, family = "Arial"),
+        legend.text = element_text(color = "black", size = 10, family = "Arial"),
+        legend.title = element_blank(), 
+        aspect.ratio=1/2,
+        axis.title.x=element_blank()) + 
+ scale_y_continuous(expand = c(0.0006, 0), limits = c(0, 40), breaks = scales::pretty_breaks(n = 10)) +
+  ylab("ARG Count") +
+  #ggtitle("Proportion of E. coli Resistance Genes Found on Plasmid Contig") +
+  scale_fill_manual(values = c("darkorange", "blue4")) 
+```
+#Resistant Gene Repetoire of Isolates
+```{r}
+#recode dataset
+arg_genes <- arg %>% select(isolate, product) %>% filter(str_detect(product, "bla")) %>% mutate(res = case_when(
+  str_detect(product, "blaKPC-2") |
+             str_detect(product, "blaOXA-181") |
+             str_detect(product, "blaOXA-48") |
+             str_detect(product, "NDM") ~ "Carbapenemase",
+           str_detect(product, "CTX") |
+             str_detect(product, "SHV-12") ~ "Extended Spectrum Beta-lactamase",
+             str_detect(product, "CMY") ~ "AmpC Beta-lactamase", 
+             str_detect(product, "blaOXA-1") | 
+             str_detect(product, "TEM")  ~ "OXA and TEM Beta-lactamases", 
+  TRUE ~ "Other")) %>% arrange(product) %>% group_by(isolate) %>% summarise(product = toString(product), res = toString(unique(res)))
+
+#tally up gene profiles
+res_table <- arg_genes %>% group_by(res) %>% summarise(count = n()) 
+res_table <- res_table %>% mutate(percent_res = count/82 *100)
+```
+
+#Plasmid Contigs
+```{r}
+
+```
+
+
