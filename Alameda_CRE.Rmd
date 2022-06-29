@@ -21,24 +21,8 @@ arg <- read.delim("abricate_mlplasmids_analysis.tsv") %>% rename(isolate = "X.FI
 #mlst
 ec_st <- read.delim("e.colimlst.txt", header=TRUE, fill=TRUE) %>% rename (isolate = "ID") %>% rename_with(~ tolower(gsub(" ","_", .x, fixed=TRUE))) %>% filter(isolate != "ID1000918.fasta")
 
-#mlplasmid analysis
-mlplasmids <- read.csv("alameda_mlplasmids_comp.csv") %>% select(-X) %>% rename(contig_id = contig_name, contig_length = contig_length) %>% mutate(id = str_remove(isolate, ".fastq.gz.fasta"))
-#remove spaces so merge is possible
-mlplasmids$contig_id <- sub(" ", "_", mlplasmids$contig_id)
-mlplasmids$contig_id <- sub(" ", "_", mlplasmids$contig_id)
-mlplasmids$contig_id <- sub(" ", "_", mlplasmids$contig_id)
-mlplasmids$contig_id <- sub(" ", "_", mlplasmids$contig_id)
-mlplasmids$contig_id <- sub(" ", "_", mlplasmids$contig_id)
-mlplasmids$contig_id <- sub(" ", "_", mlplasmids$contig_id)
-
-#mobsuite analysis
-mobsuite <- read.csv("alameda_mob_suite_contig_comp.csv") %>% select(-X)
-
-#merge mobsuite and mlplasmid for master dataset
-plas_master <- merge(mlplasmids, mobsuite, by = c('id', 'contig_id')) %>% arrange(id, sequence) %>% rename(mlplasmid_prediction = prediction, mobsuite_prediction = molecule_type)
-#tidyup
-plas_master <- plas_master %>% select(-sample_id) %>% filter(contig_length > 1000)  
-plas_master$mlplasmid_prediction = tolower(plas_master$mlplasmid_prediction)
+#plasmid data
+plas_master <- read.csv("plas_master.csv")
 ```
 #Resistance and Plasmid Analysis
 ```{r}
