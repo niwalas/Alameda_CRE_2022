@@ -16,10 +16,10 @@ library(kableExtra)
 
 #import datasets
 #resistance genes
-arg <- read.delim("abricate_mlplasmids_analysis.tsv") %>% rename(isolate = "X.FILE") %>% rename_with(~ tolower(gsub(" ","_", .x, fixed=TRUE))) %>% filter(isolate != "ID1000918.fasta")
+arg <- read.delim("abricate_res_analysis.tsv") %>% rename(isolate = "X.FILE") %>% rename_with(~ tolower(gsub(" ","_", .x, fixed=TRUE))) %>% filter(isolate != "ID1000918.fasta") %>% mutate(id = str_remove(str_remove(isolate, "outdir/fasta/"), ".fastq.gz.fasta"))
 
 #mlst
-ec_st <- read.delim("e.colimlst.txt", header=TRUE, fill=TRUE) %>% rename (isolate = "ID") %>% rename_with(~ tolower(gsub(" ","_", .x, fixed=TRUE))) %>% filter(isolate != "ID1000918.fasta")
+ec_st <- read.delim("e.colimlst.txt", header=TRUE, fill=TRUE) %>% rename (isolate = "ID") %>% rename_with(~ tolower(gsub(" ","_", .x, fixed=TRUE))) %>% filter(isolate != "ID1000918.fasta") %>% mutate(id = str_remove(str_remove(isolate, "outdir/fasta/"), ".fastq.gz.fasta"))
 
 #plasmid data
 plas_master <- read.csv("plas_master.csv")
@@ -33,6 +33,7 @@ arg_plas <- merge(arg, plas_master, by = c('sequence', 'isolate'), all = F) %>% 
 #filter out ambiguous contig calls
 arg_plas <- arg_plas %>% filter(mlplasmid_prediction == "chromosome" & mobsuite_prediction == "chromosome" | mlplasmid_prediction == "plasmid" & mobsuite_prediction == "plasmid")
 
+#creats binary code for product classification
 arg_plas_2 <- arg_plas %>% 
   mutate(MCR = if_else(grepl("mcr",product), 1, 0),
          BLA_OXA = if_else(grepl("OXA",product), 1, 0), 
@@ -96,7 +97,7 @@ arg_plas_summary_plas <- arg_plas_2 %>% filter(mlplasmid_prediction == "plasmid"
 
 #merge the two counts
 arg_plas_summary <- merge(arg_plas_summary_chr, arg_plas_summary_plas, by = c('res_group')) 
-#format for plot and remove empty
+#format for plot and remove empty counts
 arg_plas_summary_2_graph <- arg_plas_summary %>% pivot_longer(cols = 2:3 , names_to = "group") %>% rename(count = value)
 
 #plot
@@ -140,7 +141,196 @@ res_table <- res_table %>% mutate(percent_res = count/82 *100)
 
 #Plasmid Contigs
 ```{r}
+#recode plasmid contigs
+plas_contigs <- arg_plas %>% select(isolate, product, mlplasmid_prediction, sequence) %>% mutate(res_class = case_when(
+  str_detect(product, "blaKPC-2") |
+             str_detect(product, "blaOXA-181") |
+             str_detect(product, "blaOXA-48") |
+             str_detect(product, "NDM") ~ "Carbapenemase",
+    str_detect(product, "CTX") |
+    str_detect(product, "SHV-12") |
+    str_detect(product, "CMY") |
+    str_detect(product, "blaOXA-1") |
+    str_detect(product, "TEM") ~ "B-lactamases", 
+    str_detect(product, "aac") |
+    str_detect(product, "aph") |
+    str_detect(product, "ant") | 
+    str_detect(product, "aad") |
+    str_detect(product, "rmtB") ~ "Aminoglycoside",  
+    str_detect(product, "qnr") |
+    str_detect(product, "oqx") ~ "Quinolone", 
+    str_detect(product, "mph") |
+    str_detect(product, "erm") |
+    str_detect(product, "mdf") ~ "Macrolide",
+    str_detect(product, "sul") ~ "Sulfanomide",
+  TRUE ~ "Other")) %>% filter(mlplasmid_prediction == "plasmid")
 
+#merge to ST data 
+plas_contigs <- merge (plas_contigs, ec_st, by = "isolate") %>% select(isolate, product, res_class, st, sequence)
+#recode for UIST
+plas_contigs$st <- gsub('-', 'UIST', plas_contigs$st)
+
+plas_contigs <- plas_contigs %>% arrange(res_class) %>% group_by(isolate, st, sequence) %>% summarise(product = toString(product), res_class = toString(unique(res_class))) 
+
+plas_contigs <- plas_contigs %>% select(-isolate, -sequence) %>% arrange(product) %>% group_by(product, res_class) %>% summarise(st = toString(st)) %>% filter(str_detect(res_class, "B-lactamase") | str_detect(res_class, "Carbapenemase"))
+
+plas_contigs <- plas_contigs[, c(2, 1, 3)]
+
+```
+
+#cgMLST analysis
+```{r}
+#calculate shared genes
+ctx_cgmlst <- read_excel("ctx_cgmlst.xlsx")
+
+ctx_cgmlst_26123 <- ctx_cgmlst %>% 
+  filter(Genome == "ID1000095" | Genome == "ID1000399" | Genome == "ID1000461") %>% select_if(function(x) any(!is.na(x)))
+ctx_cgmlst_26123_count <- vapply(ctx_cgmlst_26123, function(x) length(unique(x)) > 1, logical(1L)) %>% 
+  as.data.frame() %>% rename(test = ".") %>% filter(test == "FALSE") 
+table(ctx_cgmlst_26123_count$test)
+  #2443 shared genes
+
+ctx_cgmlst_33210 <-ctx_cgmlst %>% 
+  filter(Genome == "ID1000627" | Genome == "ID1000893") %>% select_if(function(x) any(!is.na(x)))
+ctx_cgmlst_33210_count <- vapply(ctx_cgmlst_33210, function(x) length(unique(x)) > 1, logical(1L)) %>% 
+  as.data.frame() %>% rename(test = ".") %>% filter(test == "FALSE") 
+table(ctx_cgmlst_33210_count$test)
+  #2463 shared genes
+
+ctx_cgmlst_141806 <- ctx_cgmlst %>% 
+  filter(Genome == "ID1000654" | Genome == "ID1000835") %>% select_if(function(x) any(!is.na(x)))
+ctx_cgmlst_141806_count <- vapply(ctx_cgmlst_141806, function(x) length(unique(x)) > 1, logical(1L)) %>% 
+  as.data.frame() %>% rename(test = ".") %>% filter(test == "FALSE") 
+table(ctx_cgmlst_141806_count)
+#2407 shared genes
+
+#calculate gene differences
+ctx_allele <- read_excel("cgMLSTdismatrixCTX.xlsx") %>% rename(id = "47")
+#calculate genetic distance
+#cgmlst_26123
+2/2443
+#cgmlst 33210
+1/2463
+#cgmlst 141806
+7/2407
+```
+#Heatmap of ResGenes and ST
+```{r}
+#merge resistance genes and ST
+ec_summary <- merge(ec_st, arg, by=c("id"))
+
+#label resistance gene groups
+ec_summary <- ec_summary %>% 
+  mutate(product = as.factor(product),
+         group = case_when(
+           str_detect(product, "blaKPC-2") |
+             str_detect(product, "blaOXA-181") |
+             str_detect(product, "blaOXA-48") |
+             str_detect(product, "NDM") ~ "Carbapenemase",
+           str_detect(product, "CTX") |
+             str_detect(product, "SHV-12") ~ "Extended Spectrum Beta-lactamase",
+             str_detect(product, "CMY") ~ "AmpC Beta-lactamase", 
+             str_detect(product, "blaOXA-1") | 
+             str_detect(product, "TEM")  ~ "OXA and TEM Beta-lactamases",
+           str_detect(product, "mcr") ~ "Colistin",
+           str_detect(product, "qnr") | 
+             str_detect(product, "oqx") ~ "Quinolones",
+           str_detect(product, "aac") |
+             str_detect(product, "aph") |
+             str_detect(product, "ant") ~ "Aminoglycosides",
+           str_detect(product, "erm") ~ "Macrolides",
+         TRUE ~ "Other"))
+
+#Group the extra GENES into an "other category" 
+ec_summary$product <-as.factor(as.character((ec_summary$product)))
+typeof(ec_summary$product)
+ec_summary$ST <- recode(ec_summary$ST, "-" = "UIST")
+ec_summary <- ec_summary %>% mutate(product2 = product)
+ec_summary$product2 <- gsub("mdf", "other.", ec_summary$product2)
+ec_summary$product2 <- gsub("mph", "other.", ec_summary$product2)
+ec_summary$product2 <- gsub("cat", "other.", ec_summary$product2)
+ec_summary$product2 <- gsub("dfr", "other.", ec_summary$product2)
+ec_summary$product2 <- gsub("tet", "other.", ec_summary$product2)
+ec_summary$product2 <- gsub("flo", "other.", ec_summary$product2)
+ec_summary$product2 <- gsub("arm", "other.", ec_summary$product2)
+ec_summary$product2 <- gsub("IMI", "other.", ec_summary$product2)
+ec_summary$product2 <- gsub("sul", "other.", ec_summary$product2)
+ec_summary$product2 <- gsub("msr", "other.", ec_summary$product2)
+ec_summary$product2 <- gsub("mef", "other.", ec_summary$product2)
+ec_summary$product2 <- gsub("qep", "other.", ec_summary$product2)
+ec_summary$product2 <- gsub("rmt", "other.", ec_summary$product2)
+ec_summary$product2 <- gsub("aad", "other.", ec_summary$product2)
+ec_summary$product2 <- sub("\\..*", "", ec_summary$product2)
+
+#Calculate relative abundance within the ST
+ec_summary <- ec_summary %>% group_by(st) %>% mutate(STtotalgenes = n())
+ec_summary <- ec_summary %>% group_by(st, gene) %>% mutate(STrestally = n())
+ec_summary <- ec_summary %>% mutate(mean.abd = STrestally/STtotalgenes)
+
+#group the resistance genes
+ec_hm1 <- ec_summary %>% select(product2, st, group, mean.abd) %>% mutate(col = case_when(group == "Extended Spectrum Beta-lactamase" ~ 1, group == "AmpC Beta-lactamase" ~ 2 , group == "OXA and TEM Beta-lactamases"~ 3,                                                               
+                         group == "Carbapenemase" ~ 4 , 
+                           group == "Colistin" ~ 5, 
+                           group == "Macrolides" ~ 6,
+                         group == "Aminoglycosides" ~7, 
+                         group == "Quinolones" ~ 8, 
+                         group == "Other" ~9)) 
+
+#group for legend organization
+ec_hm1$group <- factor(ec_hm1$group, levels = c("Carbapenemase", "Extended Spectrum Beta-lactamase", "AmpC Beta-lactamase", "OXA and TEM Beta-lactamases", "Macrolides", "Quinolones", "Aminoglycosides", "Other" ))
+
+#reorder and plot
+hm1 <- ec_hm1  %>%  arrange(group) %>%
+  mutate(name= factor(st, levels=c("131","69", "95", "73", #most common high risk
+                                   "405", "410", "1193", "38", "648", "167","354", #emerging high risk
+                                   "90","122", "345", "44", #low risk
+                                   "457","6870", "11","156",
+                                   "963","101","144","404","10", "UIST")),
+        res = factor(product2, levels = c ("other", "aac(6')-Ib-cr", #aminoglycosides
+                                           "aac(3)-IIa", "aph(3)-Ia" , 
+                                           "aac(3)-IId", "aac(3)-VIa", 
+                                           "aph(3')-Ia", "aph(3'')-Ib",
+                                           "aph(6)-Id","ant(3'')-Ia",
+                                           "qnrS1",	"qnrB1", "erm(B)", #macrolides and quinolones
+                                           "blaOXA-1", #OXA- AND TEM- BETA LACTAMASES
+                                           "blaTEM-141", "blaTEM-30", 
+                                           "blaTEM-1C", "blaTEM-1B", 
+                                           "blaCMY-145", "blaCMY-140", #ampC beta-lactamase
+                                           "blaCMY-138","blaCMY-42",
+                                           "blaCMY-6", "blaCMY-2", 
+                                           "blaSHV-12", #ESBL
+                                           "blaCTX-M-65","blaCTX-M-55", "blaCTX-M-27",
+                                           "blaCTX-M-15", "blaCTX-M-14", "blaCTX-M-3",
+                                           "blaKPC-2", #carbapenemase genes
+                                           "blaOXA-181", "blaOXA-48", 
+                                           "blaNDM-5", "blaNDM-1" 
+                                           ))) %>%
+  ggplot(., aes(x=(name), y=as.factor(res), fill=group, alpha=mean.abd)) +
+  geom_tile(width=0.8, height=0.8) +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size=12),
+        axis.text.x = element_text(size=12, face=c("bold", "bold", "bold","bold", #most common high risk
+                                                   "plain", "plain","plain", "plain", 
+                                                   "plain", "plain", "plain", 
+                                                   "plain", "plain","plain", 
+                                                   "plain", "plain", "plain", 
+                                                   "plain", "plain", "plain", 
+                                                   "plain", "plain", "plain", 
+                                                   "plain", "plain"), 
+                                   color = c("red","red","red", "red", 
+                                             "blue", "blue", "blue", "blue", "blue", "blue", "blue",  
+                                             "black", "black", "black", "black", "black", "black", 
+                                             "black", "black", "black", "black", "black", "black", "black", "black", "black" 
+                                             ), 
+                                   angle=45, hjust=-0.03),
+        axis.title = element_blank(),
+        legend.title = element_text(size=12, face = "bold"),
+        legend.text = element_text(size=12), 
+        plot.subtitle=element_text(size=12, face = "bold")) +
+  labs(fill="Resistance Group", alpha = "Relative Abundance") +
+  coord_equal() + scale_x_discrete(position = "top") + scale_color_manual(values = c("brown", "chocolate", "coral", "darkgoldenrod1", "darkturquoise", "darkslategrey4", "deepskyblue2", "blueviolet"))
+
+hm1
 ```
 
 
